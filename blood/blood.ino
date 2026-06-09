@@ -48,6 +48,23 @@ body{margin:0;font-family:Segoe UI;background:#0f2027;color:white;}
 canvas{background:white;margin-top:15px;border-radius:10px;}
 input{width:70px;padding:5px;margin:5px;}
 button{padding:6px;margin:5px;}
+
+table{border-collapse:collapse;margin:15px auto;background:white;color:#222;min-width:520px;width:90%;max-width:720px;}
+table th,table td{border:1px solid #bbb;padding:8px 14px;text-align:center;font-weight:normal;width:16.66%;}
+table th{background:#222;color:white;font-weight:bold;position:sticky;top:0;z-index:2;}
+.bubble{background:#e53935;color:white;font-weight:bold;}
+.thresholdRow td{background:#f0f0f0;font-weight:bold;color:#222;}
+.countCol{background:#222;color:#fff;font-weight:bold;}
+.countOk{background:#43a047;color:#fff;}
+
+.tabBar{display:flex;justify-content:center;margin:10px 0 20px 0;}
+.tabBar button{background:#222;color:white;border:1px solid #444;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 22px;cursor:pointer;font-size:15px;}
+.tabBar button.active{background:#1e88e5;border-color:#1e88e5;}
+.tabContent{display:none;}
+.tabContent.active{display:block;}
+
+.tableScroll{max-height:520px;overflow-y:auto;margin:0 auto;width:90%;max-width:720px;border:1px solid #bbb;border-radius:6px;}
+.tableScroll table{margin:0;width:100%;}
 </style>
 </head>
 
@@ -66,6 +83,12 @@ button{padding:6px;margin:5px;}
 
 <h2>Bubble Detection Dashboard</h2>
 
+<div class="tabBar">
+<button id="tabBtnDash" class="active" onclick="showTab('dash')">Dashboard</button>
+<button id="tabBtnTable" onclick="showTab('table')">Table</button>
+</div>
+
+<div id="tabDash" class="tabContent active">
 <div>
 <div id="c1" class="card"><div>S1</div><div id="v1">0</div></div>
 <div id="c2" class="card"><div>S2</div><div id="v2">0</div></div>
@@ -84,6 +107,38 @@ Min<input id="gmin" value="0"> Max<input id="gmax" value="4095">
 <canvas id="gAll" width="900" height="250"></canvas>
 
 <div id="graphs"></div>
+</div>
+
+<div id="tabTable" class="tabContent">
+<h3>Live Sensor Table</h3>
+<div class="tableScroll">
+<table id="dataTable">
+<thead>
+<tr>
+<th>Count</th>
+<th>S1</th>
+<th>S2</th>
+<th>S3</th>
+<th>S4</th>
+<th>Label</th>
+</tr>
+<tr class="thresholdRow">
+<td>Threshold</td>
+<td id="th1">--</td>
+<td id="th2">--</td>
+<td id="th3">--</td>
+<td id="th4">--</td>
+<td>--</td>
+</tr>
+</thead>
+<tbody id="tableBody"></tbody>
+</table>
+</div>
+<br>
+<button id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+<button onclick="downloadCSV()">Download CSV</button>
+<button onclick="clearTable()">Clear Table</button>
+</div>
 
 </div>
 </div>
@@ -91,6 +146,9 @@ Min<input id="gmin" value="0"> Max<input id="gmax" value="4095">
 <script>
 let data=[[],[],[],[]];
 let colors=["red","blue","green","orange"];
+
+let paused=false;
+let rowCounter=0;
 
 let gmin=0,gmax=4095;
 
@@ -168,7 +226,7 @@ let threshold=Number(parts[i]);
 document.getElementById("v"+(i+1)).innerText=val;
 
 let card=document.getElementById("c"+(i+1));
-card.className=(val>threshold)?"card blood":"card noblood";
+card.className=(val>=threshold)?"card blood":"card noblood";
 
 data[i].push(val);
 if(data[i].length>80) data[i].shift();
@@ -186,10 +244,80 @@ document.getElementById("thresholdData").innerText=p[2];
 
 let tr=await fetch('/time');
 document.getElementById("timer").innerText=await tr.text();
+
+// Update threshold cells in table header row
+for(let i=0;i<4;i++){
+document.getElementById("th"+(i+1)).innerText=Number(parts[i]).toFixed(0);
+}
+
+// Add a new row to the data table only when not paused
+if(!paused){
+let label=0;
+let cells="";
+let bits=[1,2,4,8];
+for(let i=0;i<4;i++){
+let val=Number(v[i]);
+let threshold=Number(parts[i]);
+if(val>=threshold){
+cells+=`<td class="bubble">${val}</td>`;
+label+=bits[i];
+}else{
+cells+=`<td>${val}</td>`;
+}
+}
+rowCounter++;
+let count=rowCounter;
+let labelCell=`<td class="countCol ${label===0?'countOk':''}">${label}</td>`;
+let newRow=document.createElement("tr");
+newRow.innerHTML=`<td>${count}</td>`+cells+labelCell;
+document.getElementById("tableBody").appendChild(newRow);
+
+// Keep only the latest 200 rows in the DOM (scrolling area handles overflow)
+while(document.getElementById("tableBody").children.length>200){
+document.getElementById("tableBody").removeChild(document.getElementById("tableBody").firstChild);
+}
+}
+}
+
+function showTab(name){
+document.getElementById("tabDash").className=(name==="dash")?"tabContent active":"tabContent";
+document.getElementById("tabTable").className=(name==="table")?"tabContent active":"tabContent";
+document.getElementById("tabBtnDash").className=(name==="dash")?"active":"";
+document.getElementById("tabBtnTable").className=(name==="table")?"active":"";
+}
+
+function clearTable(){
+document.getElementById("tableBody").innerHTML="";
+rowCounter=0;
+}
+
+function togglePause(){
+paused=!paused;
+let btn=document.getElementById("pauseBtn");
+btn.innerText=paused?"▶ Resume":"⏸ Pause";
+btn.style.background=paused?"#43a047":"";
 }
 
 async function cal(m){
 await fetch('/cal?mode='+m);
+}
+
+function downloadCSV(){
+let rows=document.querySelectorAll("#dataTable tr");
+let csv=[];
+rows.forEach(r=>{
+let cols=r.querySelectorAll("th,td");
+let row=[];
+cols.forEach(c=>row.push(c.innerText));
+csv.push(row.join(","));
+});
+let csvContent="data:text/csv;charset=utf-8,"+csv.join("\n");
+let link=document.createElement("a");
+link.setAttribute("href",encodeURI(csvContent));
+link.setAttribute("download","bubble_data.csv");
+document.body.appendChild(link);
+link.click();
+document.body.removeChild(link);
 }
 
 setInterval(update,150);
